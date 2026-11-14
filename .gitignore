@@ -1,0 +1,47 @@
+# === SECRETOS: nunca subir ===
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+webhook_secret*
+
+# Base de datos con el ledger de pagos: nunca al repo
+*.db
+*.db-journal
+*.sqlite*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+build/
+.npm/
+*.log
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Artefactos locales
+*.local
+tmp/
+.tunnel/
+capturas/
+
+# Reglas que ya tenía el repo de la laptop
+la_bocina.db
+*.sqlite
+*.sqlite3
+_*_staging.md

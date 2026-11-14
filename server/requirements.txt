@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+httpx
+standardwebhooks
+python-dotenv
+# --- TTS local (instala solo el motor que uses) ---
+# kokoro>=0.9.4   # + espeak-ng del sistema, + soundfile numpy
+# soundfile
+# edge-tts        # TTS gratis sin llave (Microsoft)
