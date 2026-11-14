@@ -1,58 +1,57 @@
-# La Bocina · frontend (Oscar)
+# La Bocina · pantalla del cajero
 
-Pantalla del cajero: monto, teclado, QR CoDi, confirmación en verde y **Bocina** (voz).  
-Repo del hackatón Cursor México — se integrará después con el backend/mono-repo de Rafael.
+Monto, teclado, micrófono, QR de CoDi, confirmación en verde, **Bocina** y botón de
+entregar. Vite + TypeScript, sin framework. Hecha por Oscar; su historial de commits
+se conserva en este repo.
+
+El dinero y pey viven en [`../server`](../server). Esta carpeta solo pinta la caja y
+le habla al API del servidor.
 
 ## Qué hay aquí
 
 | Pieza | Rol |
 |---|---|
-| `src/` | Vite + **TypeScript** — UI del cajero |
-| `server/` | Mini **FastAPI** — proxy a **ElevenLabs** (STT/TTS); la API key no va al browser |
-| `.scratch/` | Mapa wayfinder / tickets de decisión |
-| `PROGRESS.md` | Índice de avance |
+| `src/main.ts` | Cablea la pantalla: cobro, eventos, voz, entregar |
+| `src/ts/api.ts` | Cliente del API: cobros, eventos (SSE) con consulta de respaldo, voz |
+| `src/ts/parser.ts` | **Parser fijo** de frases de cobro. Sin modelo de lenguaje |
+| `src/ts/bocina.ts` | La Bocina: arma la frase y la canta una sola vez por `transactionId` |
+| `src/ts/state.ts` · `ui.ts` | Estado de la caja y su pintado |
+| `GLOSSARY.md` | El lenguaje del dominio |
+| `.scratch/` · `PROGRESS.md` | Notas de trabajo del día del hackatón |
 
-El dinero y pey viven en el server de Rafael. Este repo solo pinta la caja y habla con `/api/voz/*` (local) y, en fase 2, con los endpoints de cobros.
-
-## Arranque local
-
-### 1. Front
+## Arranque
 
 ```bash
-cp .env.example .env   # VITE_API_BASE → tunnel de Rafael
+cp .env.example .env    # VITE_API_BASE y VITE_API_TOKEN
 npm install
-npm run dev
+npm run dev             # http://localhost:5173
 ```
 
-Abre `http://localhost:5173`. En DEV, Vite proxifica `/api/cobros` y `/api/eventos` al tunnel (Rafael aún sin CORS). Demo sin API: `?fixture=1`.
+En desarrollo, Vite reenvía `/api/cobros`, `/api/eventos`, `/api/tts` y `/api/stt` al
+servidor que diga `VITE_API_BASE`.
 
-### 2. Mini-proxy de voz (otra terminal)
+Para servir la pantalla desde el mismo servidor (un proceso, una URL):
 
 ```bash
-cd server
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env        # pega ELEVENLABS_API_KEY
-uvicorn main:app --reload --port 8000
-# o desde la raíz: npm run dev:voz
+npm run build           # deja web/dist; el servidor la sirve en GET /
 ```
 
-Vite ya proxifica `/api/voz` → `http://127.0.0.1:8000`.
+En ese caso `VITE_API_BASE` puede ir vacío: la pantalla usa rutas relativas.
 
-Comprueba: `curl http://127.0.0.1:8000/salud`  
-TTS: `curl -X POST http://127.0.0.1:8000/api/voz/hablar -H 'Content-Type: application/json' -d '{"texto":"Listo"}' -o listo.mp3`
+## Modos de prueba
+
+- `?fixture=1`: recorre la pantalla sin servidor, con botón **Simular pagado**.
+- `?fake=1`: usa la voz del navegador en lugar del servidor.
+
+## Reglas de la pantalla
+
+- **Nunca verde por clic o temporizador.** Solo por un `pagado` que vino del servidor.
+- Dos oídos para el mismo aviso: eventos del servidor y consulta cada 2 segundos. El
+  que llegue primero gana; la Bocina canta una vez.
+- Un cobro creado por un agente (mini-MCP) aparece solo en la pantalla si está libre.
+- El teclado siempre está visible.
 
 ## Secretos
 
-- `server/.env` — **nunca** al repo (`ELEVENLABS_API_KEY`).
-- No uses `VITE_*` para la key de ElevenLabs.
-
-## Roadmap corto
-
-1. ~~Fase 1: UI + teclado + estados~~ · ~~Fase 2: cobros + SSE/poll → verde~~ · ~~Bocina ElevenLabs~~
-2. Voz de entrada: mic → STT (Scribe) → parser fijo (sin LLM para el monto).
-3. Stretch: botón Entregado (track #5).
-4. Prueba en celular + ensayo del pitch.
-
-Detalle: `PROGRESS.md` y `.scratch/oscar-frontend/map.md`.
+`VITE_API_TOKEN` queda dentro del JavaScript que descarga el navegador: no es un
+secreto, es un freno. Ninguna llave de pey ni de voz va en variables `VITE_*`.

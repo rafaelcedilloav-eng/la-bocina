@@ -17,7 +17,8 @@ REVISAR A MANO (3 puntos marcados con [CONFIRMAR] contra docs.pey.mx):
 """
 import os, time, json, asyncio, hmac, hashlib, base64, datetime, sqlite3, collections
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse, Response
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse, Response, FileResponse
+from fastapi.staticfiles import StaticFiles
 import httpx
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -54,6 +55,12 @@ OPENROUTER_TTS_FALLBACK = os.environ.get("OPENROUTER_TTS_FALLBACK", "heygen/heyg
 OPENROUTER_VOICE = os.environ.get("OPENROUTER_VOICE", "")  # opcional: id de voz del proveedor
 OPENROUTER_STT_MODEL = os.environ.get("OPENROUTER_STT_MODEL", "x-ai/grok-stt-2.0")
 STT_BACKEND = os.environ.get("STT_BACKEND", "elevenlabs").lower()   # openrouter | elevenlabs
+# Cue de entrega para los modelos de OpenRouter que aceptan corchetes (Fish / HeyGen),
+# ej. TTS_CUE=[cheerful]. Solo se antepone ahi: edge / kokoro / elevenlabs lo leerian en voz alta.
+TTS_CUE = os.environ.get("TTS_CUE", "").strip()
+# Pantalla del cajero ya compilada (web/dist). Si existe, este mismo proceso la sirve en GET /.
+WEB_DIST = os.environ.get("WEB_DIST") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "web", "dist")
 VERSION = "0.3-endurecido"
 
 app = FastAPI(title="La Bocina")
@@ -293,13 +300,26 @@ def salud():
         "ultimoWebhook": ULTIMO_WEBHOOK["hora"],
         "authRutas": "on" if API_TOKEN else "abierto",
         "persistencia": "sqlite",
+        "pantalla": "web/dist" if os.path.isfile(os.path.join(WEB_DIST, "index.html")) else "aparte",
         "version": VERSION,
     }
 
 
-@app.get("/", response_class=HTMLResponse)
+# ---------- Pantalla del cajero: un proceso, una URL ----------
+# Si web/dist existe (npm run build en web/), GET / sirve la pantalla y /assets sus archivos.
+# Si no existe, el server sigue vivo con el aviso de siempre (el front corre aparte con Vite).
+if os.path.isdir(os.path.join(WEB_DIST, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(WEB_DIST, "assets")), name="assets")
+
+
+@app.get("/")
 def home():
-    return "<h1>La Bocina</h1><p>Servidor vivo (paso 3, endurecido). Pantalla del cajero: Oscar.</p>"
+    index = os.path.join(WEB_DIST, "index.html")
+    if os.path.isfile(index):
+        return FileResponse(index, media_type="text/html",
+                            headers={"Cache-Control": "no-cache"})
+    return HTMLResponse("<h1>La Bocina</h1><p>Servidor vivo (paso 3, endurecido). "
+                        "Pantalla del cajero: compila <code>web/</code> o corre Vite.</p>")
 
 
 # ---------- Crear cobro -> POST /codi/qr real ----------
@@ -528,6 +548,8 @@ async def _tts_openrouter(texto):
     if not OPENROUTER_API_KEY:
         raise HTTPException(503, "TTS no configurado (falta OPENROUTER_API_KEY)")
     ultimo = None
+    if TTS_CUE:                                  # cue de entrega: solo modelos de OpenRouter
+        texto = f"{TTS_CUE} {texto}"
     for modelo in [m for m in (OPENROUTER_TTS_MODEL, OPENROUTER_TTS_FALLBACK) if m]:
         try:
             return await _tts_openrouter_modelo(texto, modelo)
@@ -711,6 +733,18 @@ async def mcp(req: Request):
     body = await req.json()
     rid = body.get("id")
     method = body.get("method")
+    # Saludo MCP (Streamable HTTP, respuesta JSON): sin esto un cliente real
+    # (Cursor, Claude) no llega nunca a tools/list.
+    if method == "initialize":
+        pedida = (body.get("params") or {}).get("protocolVersion")
+        return {"jsonrpc": "2.0", "id": rid, "result": {
+            "protocolVersion": pedida if isinstance(pedida, str) else "2025-03-26",
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "la-bocina", "version": VERSION}}}
+    if rid is None and isinstance(method, str) and method.startswith("notifications/"):
+        return Response(status_code=202)             # notificacion: no lleva respuesta
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": rid, "result": {}}
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": rid, "result": {"tools": [{
             "name": "cobrar",
@@ -733,10 +767,16 @@ async def mcp(req: Request):
         except (TypeError, ValueError):
             return JSONResponse({"jsonrpc": "2.0", "id": rid,
                                  "error": {"code": -32602, "message": "monto invalido"}}, status_code=400)
-        cobro = await _nuevo_cobro(monto, args.get("concepto"), canal="mcp")
+        try:
+            cobro = await _nuevo_cobro(monto, args.get("concepto"), canal="mcp")
+        except HTTPException as e:               # candado / pey caido -> error de la tool, legible
+            return {"jsonrpc": "2.0", "id": rid, "result": {
+                "content": [{"type": "text", "text": f"No se pudo cobrar: {e.detail}"}],
+                "isError": True}}
         return {"jsonrpc": "2.0", "id": rid, "result": {
             "content": [{"type": "text", "text": json.dumps(
                 {"id": cobro["id"], "estado": cobro["estado"], "monto": cobro["monto"]})}],
+            "isError": False,
             "cobroId": cobro["id"], "qrImage": cobro["qrImage"]}}
     return JSONResponse({"jsonrpc": "2.0", "id": rid,
                          "error": {"code": -32601, "message": "metodo no soportado"}}, status_code=400)

@@ -206,10 +206,10 @@ export function watchEventos(
       }
     }
     if (!known.has(tipo)) {
-      // Algunos servers mandan todo en `message` con {tipo|event|type}
+      // El server manda todo en `message` con {evento} (o {tipo|event|type}).
       if (tipo === "message" && data && typeof data === "object") {
         const obj = data as Record<string, unknown>;
-        const t = String(obj.tipo ?? obj.event ?? obj.type ?? "");
+        const t = String(obj.evento ?? obj.tipo ?? obj.event ?? obj.type ?? "");
         if (known.has(t)) {
           handleMessage(t, JSON.stringify(obj.data ?? obj));
         }

@@ -13,6 +13,7 @@ export interface CajaUI {
   onCobrar: (handler: () => void) => void;
   onMic: (handler: () => void) => void;
   onNuevo: (handler: () => void) => void;
+  onEntregar: (handler: () => void) => void;
   onFixturePagado: (handler: () => void) => void;
   setMicListening: (on: boolean) => void;
 }
@@ -110,6 +111,7 @@ export function mountUI(root: HTMLElement): CajaUI {
       <div class="caja-keys" data-el="keys"></div>
       <div class="caja-actions">
         <button type="button" class="caja-btn caja-btn-primary" data-el="cobrar">Cobrar</button>
+        <button type="button" class="caja-btn caja-btn-primary" data-el="entregar" hidden>Marcar entregado</button>
         <button type="button" class="caja-btn caja-btn-ghost" data-el="nuevo" hidden>Nuevo cobro</button>
         <button type="button" class="caja-btn caja-btn-fixture" data-el="fx-pagado" hidden>Simular pagado</button>
       </div>
@@ -131,17 +133,20 @@ export function mountUI(root: HTMLElement): CajaUI {
   const micBtn = root.querySelector<HTMLButtonElement>("[data-el=mic]")!;
   const micLabel = root.querySelector<HTMLElement>("[data-el=mic-label]")!;
   const nuevoBtn = root.querySelector<HTMLButtonElement>("[data-el=nuevo]")!;
+  const entregarBtn = root.querySelector<HTMLButtonElement>("[data-el=entregar]")!;
   const fxBtn = root.querySelector<HTMLButtonElement>("[data-el=fx-pagado]")!;
 
   let cobrarHandler: (() => void) | null = null;
   let micHandler: (() => void) | null = null;
   let nuevoHandler: (() => void) | null = null;
+  let entregarHandler: (() => void) | null = null;
   let fxHandler: (() => void) | null = null;
   let micListening = false;
 
   cobrarBtn.addEventListener("click", () => cobrarHandler?.());
   micBtn.addEventListener("click", () => micHandler?.());
   nuevoBtn.addEventListener("click", () => nuevoHandler?.());
+  entregarBtn.addEventListener("click", () => entregarHandler?.());
   fxBtn.addEventListener("click", () => fxHandler?.());
 
   const qs = new URLSearchParams(window.location.search);
@@ -240,6 +245,8 @@ export function mountUI(root: HTMLElement): CajaUI {
       s.vista === "sin_conexion" ||
       s.vista === "error"
     );
+    // Entregar solo existe sobre un cobro PAGADO (el server lo exige igual: 409 si no).
+    entregarBtn.hidden = s.vista !== "pagado";
     fxBtn.hidden = !(showFixtureControls && s.vista === "pendiente");
   }
 
@@ -260,6 +267,9 @@ export function mountUI(root: HTMLElement): CajaUI {
     },
     onNuevo(handler) {
       nuevoHandler = handler;
+    },
+    onEntregar(handler) {
+      entregarHandler = handler;
     },
     onFixturePagado(handler) {
       fxHandler = handler;

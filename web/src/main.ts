@@ -1,5 +1,11 @@
 import "./css/caja.css";
-import { crearCobro, pollCobro, watchEventos, type StopWatch } from "./ts/api";
+import {
+  crearCobro,
+  entregarCobro,
+  pollCobro,
+  watchEventos,
+  type StopWatch,
+} from "./ts/api";
 import { cantarPagado, installAudioUnlock, unlockAudio } from "./ts/bocina";
 import { fixtureCrearCobro, fixturePagado, useFixtures } from "./ts/fixtures";
 import { parseFraseCobro } from "./ts/parser";
@@ -100,12 +106,11 @@ function onServidorEvent(ev: EventoServidor): void {
     case "entregado": {
       if (actual && actual !== ev.data.id) return;
       applyDetalle({
+        // Conserva hora de pago y rastreo que ya pinta la pantalla.
+        ...(getState().cobro ?? { monto: 0, canal: "qr" as const }),
         id: ev.data.id,
         estado: "entregado",
-        monto: getState().cobro?.monto ?? 0,
-        canal: getState().cobro?.canal ?? "qr",
         entregadoEn: ev.data.entregadoEn,
-        qrImage: getState().cobro?.qrImage,
       });
       clearWatchers();
       break;
@@ -218,9 +223,48 @@ ui.onMic(() => {
   })();
 });
 
+/**
+ * Vencimiento: pey deja de aceptar el QR a los 360 s. La pantalla lo retira para que
+ * nadie lo capture ni lo pague tarde. Un pago que aun así llegue entra por SSE.
+ */
+window.setInterval(() => {
+  const s = getState();
+  if (s.vista !== "pendiente" || !s.cobro?.expiraEn) return;
+  if (Date.parse(s.cobro.expiraEn) > Date.now()) return;
+  clearWatchers();
+  setExpirado(s.cobro.id);
+}, 1000);
+
 ui.onNuevo(() => {
   clearWatchers();
   resetIdle();
+});
+
+/** Entregar: acción verificable sobre un cobro pagado (`POST /api/cobros/:id/entregar`). */
+let entregando = false;
+
+ui.onEntregar(() => {
+  const s = getState();
+  if (entregando || s.vista !== "pagado" || !s.cobro) return;
+  const cobro = s.cobro;
+
+  if (useFixtures()) {
+    applyDetalle({ ...cobro, estado: "entregado", entregadoEn: new Date().toISOString() });
+    return;
+  }
+
+  entregando = true;
+  void (async () => {
+    try {
+      const detalle = await entregarCobro(cobro.id);
+      // Conserva lo que ya pinta la pantalla y encima lo que confirmó el server.
+      applyDetalle({ ...cobro, ...detalle, estado: "entregado" });
+    } catch (err) {
+      console.warn("[entregar] falló; el cobro sigue pagado", err);
+    } finally {
+      entregando = false;
+    }
+  })();
 });
 
 ui.onFixturePagado(() => {
